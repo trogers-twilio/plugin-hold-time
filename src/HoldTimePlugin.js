@@ -1,8 +1,11 @@
 import React from 'react';
-import { VERSION, Utils } from '@twilio/flex-ui';
+import { VERSION } from '@twilio/flex-ui';
 import { FlexPlugin } from '@twilio/flex-plugin';
 
-
+import { initializeStrings } from './strings';
+import { initializeListeners } from './listeners';
+import { registerHandlebarsHelpers } from './helpers/handlebars';
+import holdTimeReducer from "./reducers/holdTimeReducer";
 
 const PLUGIN_NAME = 'HoldTimePlugin';
 
@@ -19,44 +22,13 @@ export default class HoldTimePlugin extends FlexPlugin {
    * @param manager { import('@twilio/flex-ui').Manager }
    */
   init(flex, manager) {
-    const getCustomerParticipant = (task) => {
-      const conferenceChildren = task?.conference?.source?.children || [];
+    initializeStrings();
 
-      const customerParticipant = conferenceChildren.find(p => p?.value?.participant_type === 'customer');
+    initializeListeners();
 
-      return customerParticipant;
-    }
+    registerHandlebarsHelpers();
 
-    window.Handlebars.registerHelper('CustomTaskLineCallAssigned', (payload) => {
-      const task = payload?.data?.root?.task
-      const customerParticipant = getCustomerParticipant(task);
-
-      const isCustomerOnHold = customerParticipant?.value?.hold;
-      const customerUpdatedTimestamp = customerParticipant?.dateUpdated;
-
-      let timeSinceTaskUpdated;
-      if (task?.dateUpdated) {
-        timeSinceTaskUpdated = Math.max(Date.now() - task.dateUpdated.getTime(), 0)
-      }
-
-      let timeSinceCustomerUpdated;
-      if (customerUpdatedTimestamp) {
-        timeSinceCustomerUpdated = Math.max(Date.now() - customerUpdatedTimestamp.getTime(), 0)
-      }
-
-      const value = isCustomerOnHold
-        ? `Hold ${timeSinceCustomerUpdated ? `| ${Utils.formatTimeDuration(timeSinceCustomerUpdated)}` : ''}`
-        : `Live ${timeSinceTaskUpdated ? `| ${Utils.formatTimeDuration(timeSinceTaskUpdated)}` : ''}`
-
-      return value;
-    });
-
-    manager.strings.TaskLineCallAssigned = '{{CustomTaskLineCallAssigned}}';
-    manager.strings.TaskHeaderStatusAccepted = '{{CustomTaskLineCallAssigned}}';
-    manager.strings.SupervisorTaskLive = '{{CustomTaskLineCallAssigned}}';
-    manager.strings.TaskHeaderGroupCallAccepted = "{{CustomTaskLineCallAssigned}} | {{{icon name='Participant'}}} {{task.conference.liveParticipantCount}}" ;
-    manager.strings.TaskLineGroupCallAssigned = "{{CustomTaskLineCallAssigned}} | {{{icon name='Participant'}}} {{task.conference.liveParticipantCount}}";
-    manager.strings.SupervisorTaskGroupCall = "{{CustomTaskLineCallAssigned}} | {{task.conference.liveParticipantCount}}";
+    manager.store.addReducer("holdTimeTracker", holdTimeReducer);
   }
 
   /**
