@@ -1,13 +1,12 @@
 const holdTimeReducer = (state = { reservations: {} }, action) => {
   switch (action.type) {
     case "HOLD_PRESSED":
-      const startTimestamp = Date.now();
       return Object.assign({}, state, {
         reservations: {
           [action.reservationSid]: {
             ...state.reservations[action.reservationSid],
             activeHold: true,
-            holdStartTime: startTimestamp,
+            holdStartTime: action.holdStartTime,
           },
         },
       });

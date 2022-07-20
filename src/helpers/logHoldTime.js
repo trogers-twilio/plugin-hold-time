@@ -1,13 +1,16 @@
+import { Manager, TaskHelper } from '@twilio/flex-ui';
+
 import { holdPressed, unholdPressed } from "../actions/holdActions";
 
-export const logHoldPress = (payload, store) => {
-  const reservationSid = payload.sid;
-  const state = store.getState();
+const manager = Manager.getInstance();
 
-  store.dispatch(holdPressed(reservationSid));
+export const logHoldPress = (payload, store, holdStartTime) => {
+  const reservationSid = payload.sid;
+
+  store.dispatch(holdPressed(reservationSid, holdStartTime));
 };
 
-export const logUnholdPress = (payload, store, wrapup) => {
+export const logUnholdPress = (payload, store, wrapup, holdEndTime) => {
   const reservationSid = payload.sid;
   const state = store.getState();
 
@@ -15,11 +18,10 @@ export const logUnholdPress = (payload, store, wrapup) => {
     const holdStartTime = new Date(
       state.holdTimeTracker.reservations[reservationSid].holdStartTime
     );
-    const holdEndTime = Date.now();
+    const trueHoldEndTime = holdEndTime || Date.now();
 
-    const newHoldDuration = (holdEndTime - holdStartTime) / 1000;
-    const currentHoldTime = state.holdTimeTracker.reservations[reservationSid]
-      .holdTime
+    const newHoldDuration = (trueHoldEndTime - holdStartTime) / 1000;
+    const currentHoldTime = state.holdTimeTracker.reservations[reservationSid].holdTime
       ? state.holdTimeTracker.reservations[reservationSid].holdTime
       : 0;
 
@@ -57,8 +59,7 @@ export const wrapupTask = (reservation, store) => {
 
   if (state.holdTimeTracker.reservations[reservationSid]) {
     // calulate hold time if call disconnected during hold
-    const disconnectOnHold =
-      state.holdTimeTracker.reservations[reservationSid].activeHold;
+    const disconnectOnHold = state.holdTimeTracker.reservations[reservationSid].activeHold;
     const payload = { sid: reservationSid };
 
     if (disconnectOnHold) {
@@ -66,22 +67,18 @@ export const wrapupTask = (reservation, store) => {
       state = store.getState();
     }
 
-    holdTime =
-      state.holdTimeTracker.reservations[reservationSid].holdTime == null
-        ? 0
-        : state.holdTimeTracker.reservations[reservationSid].holdTime;
+    holdTime = state.holdTimeTracker.reservations[reservationSid].holdTime == null
+      ? 0
+      : state.holdTimeTracker.reservations[reservationSid].holdTime;
 
-    console.log("the calculated hold time is ", holdTime);
+    console.log("The calculated hold time is", holdTime);
   }
 };
 
 export const handleOnBeforeCompleteTask = async (payload, store) => {
-  console.log("payload after completed:>> ", payload);
-  const channel = payload.task.channelType;
-  console.log('channel :>> ', channel);
+  const { task } = payload;
 
-  if (channel === "voice") {
-      console.log("inside if");
+  if (TaskHelper.isCallTask(task)) {
     let state = store.getState();
 
     const reservationSid = payload.sid;
@@ -90,30 +87,32 @@ export const handleOnBeforeCompleteTask = async (payload, store) => {
     let holdTime = 0
 
     if (state.holdTimeTracker.reservations[reservationSid]) {
-    holdCount =
-      state.holdTimeTracker.reservations[reservationSid].holdCounter;
-    onholdHangup = state.holdTimeTracker.reservations[reservationSid]
-      .activeHold
-      ? true
-      : false;
-    holdTime =
-      state.holdTimeTracker.reservations[reservationSid].holdTime;
+      holdCount = state.holdTimeTracker.reservations[reservationSid].holdCounter;
+      onholdHangup = state.holdTimeTracker.reservations[reservationSid]
+        .activeHold
+        ? true
+        : false;
+      holdTime = state.holdTimeTracker.reservations[reservationSid].holdTime;
     } 
 
     let attributes = payload.task.attributes;
 
-    if (typeof attributes.conversations !== "undefined") {
-      attributes.conversations.hold_time = holdTime;
-      attributes.conversations.conversation_attribute_9 = onholdHangup;
-      attributes.conversations.conversation_measure_9 = holdCount;
-    } else {
-      attributes.conversations = {
+    const workerAttributes = manager.workerClient?.attributes;
+
+    // Setting hold time and key worker attributes on task. Adding the worker
+    // attributes to this plugin instead of its own plugin to avoid task attribute 
+    // update conflicts in the beforeCompleteTask listeners
+    const newTaskAttributes = {
+      ...attributes,
+      conversations: {
+        ...attributes.conversations,
         hold_time: holdTime,
-        conversation_attribute_9: onholdHangup,
-        conversation_measure_9: holdCount,
-      };
+        conversation_attribute_9: workerAttributes?.location,
+        conversation_attribute_10: workerAttributes?.manager
+      }
     }
-    const taskUpdate = await payload.task.setAttributes(attributes);
-    console.log("Updated task:", taskUpdate);
+
+    await payload.task.setAttributes(newTaskAttributes);
+    console.log("Updated hold_time on task to", holdTime);
   }
 };
